@@ -39,7 +39,8 @@ def solve(data, is_part1=True):
             score += score_dict[inter.pop()]
         
     return score
-            
+
+ 
 
 test_case = read_file('test_case.txt')
 puzz_input = read_file('puzzle_input.txt')
