@@ -27,8 +27,7 @@ def solve(data, is_part1=True):
     
     for x1, x2, y1, y2 in data:
         if is_part1:
-            if (x1 <= y1 and x2 >= y2) or (
-                x1 >= y1 and x2 <= y2):
+            if (x1 <= y1 and x2 >= y2) or (x1 >= y1 and x2 <= y2):
                 overlap += 1
         else:
             if x1 <= y1 <= x2 or y1 <= x1 <= y2:
