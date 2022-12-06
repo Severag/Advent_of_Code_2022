@@ -20,7 +20,7 @@ def check(myanswer, answer):
 
 
 
-def solve(data, is_part1=True): 
+def solve_old(data, is_part1=True): 
     from collections import Counter
     ''' 
     use of counter came from: 
@@ -34,9 +34,17 @@ def solve(data, is_part1=True):
         freq = Counter(window)  # dictionary of characters and their counts in word
         if len(freq) == len(window):  # if every character has a single entry in freq
             return idx + 1
+
+
+
+def solve(data, is_part1=True): 
+    word = data[0]
+    win_len = (4 if is_part1 else 14) - 1
     
-    
-    return None
+    for idx, char in enumerate(word[win_len:], start=win_len):
+        window = set(word[idx - win_len:idx+1])
+        if len(window) == win_len + 1:
+            return idx + 1
 
  
 
