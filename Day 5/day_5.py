@@ -23,7 +23,7 @@ def read_file(filename):
     data = [stacks, instr]
     
     return data
-    
+
 
 
 def check(myanswer, answer):
@@ -35,7 +35,7 @@ def check(myanswer, answer):
     else:
         print('Check passed!')
     print(myanswer)
-    
+
 
 
 def solve(data, is_part1=True): 
@@ -53,7 +53,7 @@ def solve(data, is_part1=True):
     
     return answer
 
- 
+
 
 test_case = read_file('test_case.txt')
 puzz_input = read_file('puzzle_input.txt')
