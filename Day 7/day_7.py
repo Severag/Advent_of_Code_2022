@@ -8,6 +8,7 @@ def read_file(filename):
     current_dir = ''
     
     for idx,line in enumerate(data):
+        # if this line is a command
         if line[0] == '$':
             if 'cd' in line:  # if we're moving up, out of a directory
                 if line[-1] == '..':
@@ -32,18 +33,13 @@ def read_file(filename):
                                            'children':[],
                                            'files':[],
                                            'total size':0}
-                # print(f'changing from {current_dir} to {new_dir}')
                 current_dir = new_dir
-            elif 'ls' in line:
-                inLS = True
-                # print(f"listing {current_dir}'s contents")
-        elif inLS:
+        # if this line is a command output
+        else:
             if 'dir' in line:
                 system[current_dir]['children'] += [current_dir + '/' + line[-1]]
-                # print(f"adding {line[-1]} to the list of {current_dir}'s children")
             else:
                 system[current_dir]['files'] += [[int(line[0]), line[1]]]
-                # print(f"adding {line[-1]} to the list of {current_dir}'s files")
     
     # manually cd .. our way back to the root node
     while current_dir != '':
