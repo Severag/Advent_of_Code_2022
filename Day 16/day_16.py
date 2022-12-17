@@ -41,12 +41,12 @@ def Astar(info, start, end, dist, heuristic):
     
     closed_set = set()
     
-    best_so_far = None
+    best_so_far = dict()
     
     while open_list:
-        old_f, _, _, current_bytes = heapq.heappop(open_list)
+        old_f, old_flow, _, current_bytes = heapq.heappop(open_list)
         # current state
-        current = np.frombuffer(current_bytes, dtype=start.dtype).reshape(start.shape)
+        current = np.frombuffer(bytearray(current_bytes), dtype=start.dtype).reshape(start.shape)
         # current node
         cur_node_num = current[0, -1]
         open_set.discard(current_bytes)
@@ -61,34 +61,24 @@ def Astar(info, start, end, dist, heuristic):
         if gscores[current_bytes] > 30:
             continue
         
-        # the end condition
-        # if heuristic(current, end) == 0:
-            # break
         
-        # if this state has already opened all the valves
-        if np.count_nonzero(flow_rates) - np.count_nonzero(current[:, 0]) == 0:
-            # don't bother running it anymore, can tidy up at the end with the winner
-            # but we can use it as a benchmark to prune future searches
-            # first, ensure the time elapsed is the same for both
-            if best_so_far is not None and gscores[current_bytes] > gscores[best_so_far[1]]:
-                temp = np.frombuffer(bytearray(best_so_far[1]), dtype=start.dtype).reshape(start.shape)
-                temp[:, 1] += temp[:, 0] * (gscores[current_bytes] - gscores[best_so_far[1]])
-                best_so_far = [total_flow(temp, flow_rates), temp.tobytes]
-                gscores[best_so_far[1]] = gscores[current_bytes]
-            
-            new_flow = total_flow(current, flow_rates)
-            if best_so_far is None or new_flow > best_so_far[0]:
-                best_so_far = [new_flow, current_bytes]
+        if best_so_far.get(gscores[current_bytes], [0])[0] > np.abs(old_flow):
+            # if there's a better one, don't bother with this path anymore
             continue
-        elif best_so_far is not None:
-            # the finished state's total flow will grow faster than any state
-            # some valves closed, so if they haven't opened them all and have less
-            # flow, they won't catch up and can be ignored
-            if best_so_far[0] > total_flow(current, flow_rates):
-                continue
+        elif np.count_nonzero(flow_rates) - np.count_nonzero(current[:, 0]) == 0:
+            # if we found a better one that also open all the valves
+            best_so_far[gscores[current_bytes]] = [np.abs(old_flow), current, current_bytes]
+        
+        # if current has opened all the valves
+        if np.count_nonzero(flow_rates) - np.count_nonzero(current[:, 0]) == 0:
+            # don't produce more children, just propagate forward
+            current[:, 1] += current[:, 0]
+            candidates = [current]
+        else:
+            candidates = get_new_states(current, connections[cur_node_num], index_valve, flow_rates)
         
         
-        for cand in get_new_states(current, connections[cur_node_num], index_valve, flow_rates):
+        for cand in candidates:
             cand_bytes = cand.tobytes()
             cand_g = gscores[current_bytes] + dist(current, cand, None)
             cand_f = cand_g + heuristic(cand, end)
@@ -103,8 +93,8 @@ def Astar(info, start, end, dist, heuristic):
                 gscores[cand_bytes] = cand_g
                 fscores[cand_bytes] = cand_f
         
-        if len(happy_set & open_set) < 1:
-            print('warning?')
+        # if len(happy_set & open_set) < 1:
+        #     print('warning?')
                     
         
     # current is the first path to open all valves
@@ -175,25 +165,25 @@ def solve(data, is_part1=True):
         p = np.sum(state_vec[:, 1] * flow_rates)
         return -p/100
     
-    Astar([connections, flow_rates, valve2idx], state, None, dummy_dist, no_h)
+    return Astar([connections, flow_rates, valve2idx], state, None, dummy_dist, no_h)
     
 
     return None
 
 
-import pickle
-happy_path = ["DD", None, "CC", "BB", None, "AA", "II", "JJ", None, "II", "AA", 
-              "DD", "EE", "FF", "GG", "HH", None, "GG", "FF", "EE", None, "DD", 
-              "CC", None, None, None, None, None, None]
-with open('happy_path.pkl', 'rb') as f:
-    happy_set = pickle.load(f)
+# import pickle
+# happy_path = ["DD", None, "CC", "BB", None, "AA", "II", "JJ", None, "II", "AA", 
+#               "DD", "EE", "FF", "GG", "HH", None, "GG", "FF", "EE", None, "DD", 
+#               "CC", None, None, None, None, None, None]
+# with open('happy_path.pkl', 'rb') as f:
+#     happy_set = pickle.load(f)
 
 
 test_case = read_file('test_case.txt')
 puzz_input = read_file('puzzle_input.txt')
 
 print('Part 1'.center(50,'-'))
-check( solve(test_case), 1651 )
+# check( solve(test_case), 1651 )
 print(solve(puzz_input))
 
 # print('\n\n' + 'Part 2'.center(50,'-'))
