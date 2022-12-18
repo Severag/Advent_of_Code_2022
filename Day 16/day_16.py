@@ -41,7 +41,11 @@ def Astar(info, start, end, dist, heuristic):
     
     closed_set = set()
     
-    best_so_far = dict()
+    end_time = 30 * dist()
+    
+    max_r = np.sum(flow_rates)
+    # best = [total flow, state (in byte-form)]
+    best = [0, start]
     
     while open_list:
         old_f, old_flow, _, current_bytes = heapq.heappop(open_list)
@@ -58,16 +62,23 @@ def Astar(info, start, end, dist, heuristic):
             closed_set.add(current_bytes)
         
         # if time's up
-        if gscores[current_bytes] > 30:
+        if gscores[current_bytes] >= end_time:
+            # if this path achieved more total flow
+            if np.abs(old_flow) > best[0]:
+                # make it the current best
+                best = [np.abs(old_flow), current_bytes]            
+            # doesn't need to be iterated anymore
             continue
         
+        # if we have a 'best' to benchmark
+        if best[0] > 0:
+            time_left = (end_time - gscores[current_bytes] + 1) // dist()
+            # if this path can't exceed the current best, even with max flow rate
+            # for the rest of the time, don't bother propagating it anymore
+            if best[0] > np.abs(old_flow) + time_left * max_r:
+                continue
+            
         
-        if best_so_far.get(gscores[current_bytes], [0])[0] > np.abs(old_flow):
-            # if there's a better one, don't bother with this path anymore
-            continue
-        elif np.count_nonzero(flow_rates) - np.count_nonzero(current[:, 0]) == 0:
-            # if we found a better one that also open all the valves
-            best_so_far[gscores[current_bytes]] = [np.abs(old_flow), current, current_bytes]
         
         # if current has opened all the valves
         if np.count_nonzero(flow_rates) - np.count_nonzero(current[:, 0]) == 0:
@@ -95,13 +106,11 @@ def Astar(info, start, end, dist, heuristic):
         
         # if len(happy_set & open_set) < 1:
         #     print('warning?')
+        if len(closed_set) % 10_000 == 0:
+            print(best[0], len(open_list))
                     
         
-    # current is the first path to open all valves
-    time_remaining = 30 - gscores[current_bytes]
-    current[:, 1] += current[:, 0] * time_remaining  # let the valves flow until time's up
-    
-    return total_flow(current, flow_rates)
+    return best[0]
 
 
 
@@ -155,6 +164,9 @@ def solve(data, is_part1=True):
     def dummy_dist(*args):
         return 1
     
+    def dummy_dist_10(*args):
+        return 10
+    
     def closed_valves(state_vec, _):
         return np.count_nonzero(flow_rates) - np.count_nonzero(state_vec[:, 0])
     
@@ -165,7 +177,12 @@ def solve(data, is_part1=True):
         p = np.sum(state_vec[:, 1] * flow_rates)
         return -p/100
     
-    return Astar([connections, flow_rates, valve2idx], state, None, dummy_dist, no_h)
+    max_r = np.sum(flow_rates)
+    def flow_rate_left(state_vec, _):
+        return max_r - np.sum(state_vec[:, 0] * flow_rates)
+    
+    # return Astar([connections, flow_rates, valve2idx], state, None, dummy_dist, no_h)
+    return Astar([connections, flow_rates, valve2idx], state, None, dummy_dist, flow_rate_left)
     
 
     return None
@@ -183,7 +200,7 @@ test_case = read_file('test_case.txt')
 puzz_input = read_file('puzzle_input.txt')
 
 print('Part 1'.center(50,'-'))
-# check( solve(test_case), 1651 )
+check( solve(test_case), 1651 )
 print(solve(puzz_input))
 
 # print('\n\n' + 'Part 2'.center(50,'-'))
