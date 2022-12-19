@@ -29,6 +29,10 @@ def check(myanswer, answer):
 
 def Astar(info, start, end, dist, heuristic, is_part1):
     import heapq
+    
+    def unbyte(byte_array):
+        return np.frombuffer(bytearray(byte_array), dtype=start.dtype).reshape(start.shape)
+    
     # connections, flow_rates, valve2idx
     connections, flow_rates, index_valve = info
     
@@ -49,7 +53,7 @@ def Astar(info, start, end, dist, heuristic, is_part1):
     while open_list:
         old_f, old_flow, current_bytes = heapq.heappop(open_list)
         # current state
-        current = np.frombuffer(bytearray(current_bytes), dtype=start.dtype).reshape(start.shape)
+        current = unbyte(current_bytes)
         # current node
         cur_node_num = current[0, -1]
         open_set.discard(current_bytes)
@@ -70,7 +74,7 @@ def Astar(info, start, end, dist, heuristic, is_part1):
             continue
         
         # if we have a 'best' to benchmark
-        if best[0] > 0:
+        if best[0] > 0 and is_part1:
             time_left = end_time - gscores[current_bytes]
             # if this path can't exceed the current best, even with max flow rate
             # for the rest of the time, don't bother propagating it anymore
@@ -84,7 +88,8 @@ def Astar(info, start, end, dist, heuristic, is_part1):
             current[:, 1] += current[:, 0]
             candidates = [[current, gscores[current_bytes] + 1]]
         else:
-            candidates = get_new_states(current, connections[cur_node_num], gscores[current_bytes], flow_rates)
+            candidates = get_new_states(current, connections[cur_node_num], 
+                                        gscores[current_bytes], flow_rates, is_part1)
         
         
         for cand,new_time in candidates:
@@ -104,8 +109,23 @@ def Astar(info, start, end, dist, heuristic, is_part1):
                 fscores[cand_bytes] = cand_f
                 links[cand_bytes] = current_bytes
     
-    
-    return best[0]
+    if is_part1:
+        return best[0] 
+    else: 
+        mask = flow_rates > 0  # valves worth opening
+        comp_list = []  # list of completed states
+        valve_on_dict = dict()  # dictionary storage of all states, based on what valves they have open
+        
+        for val_b in closed_set:
+            val = unbyte(val_b) 
+            val[:, 1] += val[:, 0] * (end_time - gscores[val_b])
+            
+            on_str = ''.join(map(str, val[mask, 0]))
+            
+            comp_list.append(val)
+            valve_on_dict[on_str] = max(valve_on_dict.get(on_str, 0) , total_flow(val, flow_rates))
+        
+        return comp_list, valve_on_dict
 
 
 
@@ -117,6 +137,7 @@ def total_flow(state, flow_rates):
 def get_new_states(state, neighbors, current_time, flow_rates, is_part1):
     # assume the current valve has already been turned on
     end_time = 30 if is_part1 else 26
+    
     new_states = []
     for new_node, dist in neighbors:
         # only go to valves that haven't been opened yet, and that aren't too far in the future
@@ -204,7 +225,7 @@ def solve(data, is_part1=True):
         if isinstance(key, int):
             int_conn[key] = [valve2idx[val] for val in conn_nodes]    
     
-    # gives minutes in between all valves with nonzero flow rates
+    # gives time in between all valves with nonzero flow rates
     # so we don't have to care about the 0-value valves
     nz_conns = nonzero_connections(int_conn, flow_rates, start)
     
@@ -217,7 +238,29 @@ def solve(data, is_part1=True):
     def no_h(state_vec, _):
         return 0
     
-    return Astar([nz_conns, flow_rates, valve2idx], state, None, dummy_dist, no_h, is_part1)
+    output = Astar([nz_conns, flow_rates, valve2idx], state, None, dummy_dist, no_h, is_part1)
+    
+    
+    if is_part1:
+        return output
+    
+    all_states, valve_on_dict = output
+    key2array = {key:np.array(list(key)).astype(int) for key in valve_on_dict.keys()}
+    
+    best_totals = []
+    for key1, val1 in valve_on_dict.items():
+        key1 = key2array[key1]
+        results = []
+        
+        for key2, val2 in valve_on_dict.items():
+            key2 = key2array[key2]
+            if not np.any((key1 == key2) & (key1 == 1)):  # if the valves opened are mutually exclusive
+                results.append(val1 + val2)
+        if results:
+            best_totals.append(max(results))
+    
+    return max(best_totals)
+        
             
 
 
@@ -228,6 +271,6 @@ print('Part 1'.center(50,'-'))
 check( solve(test_case), 1651 )
 print(solve(puzz_input))
 
-# print('\n\n' + 'Part 2'.center(50,'-'))
-# check( solve(test_case, False), 56000011 )
-# print(solve(puzz_input, False))
+print('\n\n' + 'Part 2'.center(50,'-'))
+check( solve(test_case, False), 1707 )
+print(solve(puzz_input, False))
