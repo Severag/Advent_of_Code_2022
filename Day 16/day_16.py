@@ -27,28 +27,27 @@ def check(myanswer, answer):
 
 
 
-def Astar(info, start, end, dist, heuristic):
+def Astar(info, start, end, dist, heuristic, is_part1):
+    import heapq
     # connections, flow_rates, valve2idx
     connections, flow_rates, index_valve = info
-    import heapq, itertools
     
     gscores = {start.tobytes():0}
     fscores = {start.tobytes():heuristic(start, end) + 0}
-    tiebreaker = itertools.count(0, -1)
     
     open_set = {start.tobytes()}
-    open_list = [(fscores[start.tobytes()], 0, next(tiebreaker), start.tobytes())]  # (cost, (-)cumlative pressure released, state)
+    open_list = [(fscores[start.tobytes()], 0, start.tobytes())]  # (cost, (-)cumlative pressure released, state)
     
     closed_set = set()
     
-    end_time = 30 * dist()
-    
     max_r = np.sum(flow_rates)
-    # best = [total flow, state (in byte-form)]
     best = [0, start]
     
+    links = dict()
+    end_time = 30 if is_part1 else 26
+    
     while open_list:
-        old_f, old_flow, _, current_bytes = heapq.heappop(open_list)
+        old_f, old_flow, current_bytes = heapq.heappop(open_list)
         # current state
         current = np.frombuffer(bytearray(current_bytes), dtype=start.dtype).reshape(start.shape)
         # current node
@@ -72,44 +71,40 @@ def Astar(info, start, end, dist, heuristic):
         
         # if we have a 'best' to benchmark
         if best[0] > 0:
-            time_left = (end_time - gscores[current_bytes] + 1) // dist()
+            time_left = end_time - gscores[current_bytes]
             # if this path can't exceed the current best, even with max flow rate
             # for the rest of the time, don't bother propagating it anymore
             if best[0] > np.abs(old_flow) + time_left * max_r:
                 continue
-            
         
         
         # if current has opened all the valves
         if np.count_nonzero(flow_rates) - np.count_nonzero(current[:, 0]) == 0:
             # don't produce more children, just propagate forward
             current[:, 1] += current[:, 0]
-            candidates = [current]
+            candidates = [[current, gscores[current_bytes] + 1]]
         else:
-            candidates = get_new_states(current, connections[cur_node_num], index_valve, flow_rates)
+            candidates = get_new_states(current, connections[cur_node_num], gscores[current_bytes], flow_rates)
         
         
-        for cand in candidates:
+        for cand,new_time in candidates:
             cand_bytes = cand.tobytes()
-            cand_g = gscores[current_bytes] + dist(current, cand, None)
+            cand_g = new_time
             cand_f = cand_g + heuristic(cand, end)
             
             # add if new
             # update previous entry if this one is better
             # otherwise skip
-            if (cand_bytes not in closed_set and cand_bytes not in open_set) or (gscores.get(cand_bytes, np.inf) > cand_g):
-                heapq.heappush(open_list, (cand_f, -total_flow(cand, flow_rates), next(tiebreaker), cand_bytes))
+            if (cand_bytes not in closed_set and cand_bytes not in open_set) or (
+                                   gscores.get(cand_bytes, np.inf) > cand_g):
+                heapq.heappush(open_list, (cand_f, -total_flow(cand, flow_rates), cand_bytes))
                 open_set.add(cand_bytes)
                 
                 gscores[cand_bytes] = cand_g
                 fscores[cand_bytes] = cand_f
-        
-        # if len(happy_set & open_set) < 1:
-        #     print('warning?')
-        if len(closed_set) % 10_000 == 0:
-            print(best[0], len(open_list))
-                    
-        
+                links[cand_bytes] = current_bytes
+    
+    
     return best[0]
 
 
@@ -119,32 +114,75 @@ def total_flow(state, flow_rates):
 
 
 
-def get_new_states(state, neighbors, index_valve, flow_rates):
-    cur_idx = state[0, -1]
-    # if the current valve hasn't been turned on yet, add the option of spending
-    # the minute turning it on, but only if it has a positive flow rate
-    neighbors = neighbors + ([] if state[cur_idx, 0] > 0 or flow_rates[cur_idx] == 0 else [None])
+def get_new_states(state, neighbors, current_time, flow_rates, is_part1):
+    # assume the current valve has already been turned on
+    end_time = 30 if is_part1 else 26
     new_states = []
+    for new_node, dist in neighbors:
+        # only go to valves that haven't been opened yet, and that aren't too far in the future
+        if state[new_node, 0] == 0 and dist + 1 + current_time <= end_time:
+            new = np.copy(state)
+            new[:, 1] += new[:, 0] * (dist + 1)  # increment cumlative flow rates
+                                                 # +1 is extra minute to turn valve on
+            new[0, 2] = new_node                 # change current location
+            new[new_node, 0] = 1                 # turned valve on
+            new_states.append([new, current_time + dist + 1])
     
-    # debuging = happy_path.pop(0)
-    # if debuging in neighbors:
-    #     neighbors = [debuging]
-    # else:
-    #     print(neighbors)
-    #     print('', end='')
-    
-    for move in neighbors:
+    if not new_states:  # if we couldn't find any valid moves
+        # just propagate to the end    
         new = np.copy(state)
-        new[:, 1] += new[:, 0]  # increment cumlative flow rates
-        if move is None:  # if we're opening the current valve
-            new[cur_idx, 0] = 1  # turn this valve to 'on'
-        else:
-            new[0, -1] = index_valve[move]  # change current location
-        new_states.append(new)
-        
-        # happy_set.add(new.tobytes())
-        
+        new[:, 1] += new[:, 0] * (end_time - current_time)  # increment cumlative flow rates
+        new_states.append([new, end_time])
+    
     return new_states
+
+
+
+def nonzero_connections(node_dict, flow_rates, start):
+    nonzeros = np.where(flow_rates > 0)
+    
+    nz_conns = dict()
+    for node in np.append([start], nonzeros[0]):
+        dists = spfa(node_dict, node).astype(int)
+        nz_conns[node] = [[this_node, others] for this_node, others in 
+                         zip(nonzeros[0], dists[nonzeros]) if this_node != node]
+    
+    return nz_conns
+
+
+
+# shortest path faster algorithm
+def spfa(conn, start):
+    '''
+    conn : dictionary
+        keys are node names, values are its neighboring nodes
+    start : int
+        a key in conn for the first node
+    '''
+    
+    dists = np.full(len(conn), np.inf)
+    dists[start] = 0
+    
+    from collections import deque
+    open_list = deque()
+    open_list.append(start)
+    
+    closed_set = set()
+    
+    while open_list:
+        current = open_list.popleft()
+        closed_set.add(current)
+        
+        # check all of its neighbors
+        marginal_dist = 1
+        for neighbor in conn[current]:
+            new_dist = dists[current] + marginal_dist
+            if dists[neighbor] > new_dist:
+                dists[neighbor] = new_dist
+                
+                if neighbor not in open_list and neighbor not in closed_set:
+                    open_list.append(neighbor)
+    return dists
 
 
 
@@ -159,41 +197,28 @@ def solve(data, is_part1=True):
         flow_rates[idx] = info[1]
         valve2idx[info[0]] = idx
     
+    start = valve2idx['AA']
+    
+    int_conn = dict()
+    for key,conn_nodes in connections.items():
+        if isinstance(key, int):
+            int_conn[key] = [valve2idx[val] for val in conn_nodes]    
+    
+    # gives minutes in between all valves with nonzero flow rates
+    # so we don't have to care about the 0-value valves
+    nz_conns = nonzero_connections(int_conn, flow_rates, start)
+    
     state = np.zeros((len(data), 3), dtype=int)  # [valve states, cumlative time open, index of current valve]
+    state[0, 2] = start  # first node is AA, not the first line
     
     def dummy_dist(*args):
         return 1
     
-    def dummy_dist_10(*args):
-        return 10
-    
-    def closed_valves(state_vec, _):
-        return np.count_nonzero(flow_rates) - np.count_nonzero(state_vec[:, 0])
-    
     def no_h(state_vec, _):
         return 0
     
-    def digit_pressure(state_vec, _):
-        p = np.sum(state_vec[:, 1] * flow_rates)
-        return -p/100
-    
-    max_r = np.sum(flow_rates)
-    def flow_rate_left(state_vec, _):
-        return max_r - np.sum(state_vec[:, 0] * flow_rates)
-    
-    # return Astar([connections, flow_rates, valve2idx], state, None, dummy_dist, no_h)
-    return Astar([connections, flow_rates, valve2idx], state, None, dummy_dist, flow_rate_left)
-    
-
-    return None
-
-
-# import pickle
-# happy_path = ["DD", None, "CC", "BB", None, "AA", "II", "JJ", None, "II", "AA", 
-#               "DD", "EE", "FF", "GG", "HH", None, "GG", "FF", "EE", None, "DD", 
-#               "CC", None, None, None, None, None, None]
-# with open('happy_path.pkl', 'rb') as f:
-#     happy_set = pickle.load(f)
+    return Astar([nz_conns, flow_rates, valve2idx], state, None, dummy_dist, no_h, is_part1)
+            
 
 
 test_case = read_file('test_case.txt')
